@@ -236,6 +236,51 @@ def build_model():
   model.compile(loss='mse', optimizer=optimizer_name, metrics=metrics )
   return model
 model = build_model()
+
+# Extract X and Y
+X = dfSOC[features]
+Y = dfSOC[target]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, Y, test_size=0.2, shuffle=False
+)
+
+def build_soc_model():
+    input = keras.Input(shape=(1, 1, 1,), batch_size=None, name='Input')
+    x = input
+    filters = 8
+
+    # Octave Convolution layer
+    high, low = OctaveConv2D(filters=filters, kernel_size=1, octave=1, ratio_out=0.5)(x)
+
+    # Conv layer applied to high-frequency output
+    high = keras.layers.Conv2D(filters // 2, (1, 1), kernel_initializer="he_normal",
+                               padding="same", name="Conv1")(high)
+
+    # Merge high and low outputs
+    x = keras.layers.Add()([high, low])
+
+    # Reshape for recurrent layer input
+    new_shape = (x.get_shape()[1], x.get_shape()[2] * x.get_shape()[3])
+    x = keras.layers.Reshape(target_shape=new_shape, name="reshape-before-recurrent-dense")(x)
+
+    # LSTM layer
+    x = keras.layers.LSTM(16, name='recurrent_layer1')(x)
+
+    # Final regression output layer
+    x = keras.layers.Dense(1, name="SOC_Output")(x)
+
+    # Build model
+    model = keras.models.Model(input, x, name='soc-estimator')
+
+    # Compile with regression metrics
+    optimizer = tf.keras.optimizers.Adam()
+    rmse = tf.keras.metrics.RootMeanSquaredError(name="rmse")
+    metrics = ['mse', 'mae', 'mape', 'msle', rmse]
+    model.compile(loss='mse', optimizer=optimizer, metrics=metrics)
+
+    return model
+	
 #model.summary(line_length=110)
 history = model.fit(x, y, batch_size=batch_size, epochs=1, validation_data=validation_data, callbacks=callbacks)
 y_pred = model.predict(X.values.reshape(-1, 1, 1, 1))
